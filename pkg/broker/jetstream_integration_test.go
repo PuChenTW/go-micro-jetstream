@@ -477,6 +477,35 @@ func (s *ErrorScenariosSuite) TestPublishToInvalidBroker() {
 	s.Contains(err.Error(), "not connected")
 }
 
+func (s *ErrorScenariosSuite) TestInvalidDurableNames() {
+	topic := "test.invalid.durable"
+
+	tests := []struct {
+		name        string
+		durableName string
+		errorPart   string
+	}{
+		{"empty queue name", "", "required"},
+		{"with period", "my.queue", "invalid queue name"},
+		{"with asterisk", "my*queue", "invalid queue name"},
+		{"with space", "my queue", "invalid queue name"},
+		{"with slash", "my/queue", "invalid queue name"},
+		{"with backslash", "my\\queue", "invalid queue name"},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			_, err := s.broker.Subscribe(
+				topic,
+				successHandler(),
+				broker.Queue(tt.durableName),
+			)
+			s.Error(err, "Should reject invalid durable name: %s", tt.durableName)
+			s.Contains(err.Error(), tt.errorPart)
+		})
+	}
+}
+
 func (s *ErrorScenariosSuite) TestSubscribeToInvalidBroker() {
 	b := NewBroker(broker.Addrs("localhost:4222"))
 

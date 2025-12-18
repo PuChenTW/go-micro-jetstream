@@ -1,6 +1,8 @@
 package broker
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,30 +37,6 @@ func (s *HelperFunctionsSuite) TestStreamNameFromTopic() {
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
 			result := streamNameFromTopic(tt.input)
-			s.Equal(tt.expected, result)
-		})
-	}
-}
-
-func (s *HelperFunctionsSuite) TestSanitizeTopicForDurable() {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{"with dots", "test.messages", "test_messages"},
-		{"with hyphens", "my-topic.sub-topic", "my_topic_sub_topic"},
-		{"mixed case", "MixedCase.Name", "mixedcase_name"},
-		{"uppercase", "UPPERCASE.TOPIC", "uppercase_topic"},
-		{"multiple separators", "my-topic.sub-name.value", "my_topic_sub_name_value"},
-		{"only dots", "a.b.c", "a_b_c"},
-		{"only hyphens", "a-b-c", "a_b_c"},
-		{"no separators", "simple", "simple"},
-	}
-
-	for _, tt := range tests {
-		s.Run(tt.name, func() {
-			result := sanitizeTopicForDurable(tt.input)
 			s.Equal(tt.expected, result)
 		})
 	}
@@ -336,5 +314,97 @@ func (s *BrokerUnitSuite) TestInternalState() {
 func TestBrokerUnitSuite(t *testing.T) {
 	if testing.Short() {
 		suite.Run(t, new(BrokerUnitSuite))
+	}
+}
+
+// ValidationSuite tests the durable name validation function
+type ValidationSuite struct {
+	suite.Suite
+}
+
+func (s *ValidationSuite) TestValidateDurableName_Valid() {
+	tests := []struct {
+		name        string
+		durableName string
+	}{
+		{"alphanumeric only", "myqueue"},
+		{"with hyphens", "my-queue-name"},
+		{"with underscores", "my_queue_name"},
+		{"mixed alphanumeric", "queue123"},
+		{"uppercase", "MYQUEUE"},
+		{"mixed case", "MyQueue"},
+		{"single char", "q"},
+		{"max recommended length", "a1234567890123456789012345678901"},
+		{"with numbers and hyphens", "queue-v2-prod"},
+		{"complex valid", "order_processor_v2-prod"},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			err := validateDurableName(tt.durableName)
+			s.NoError(err, "Expected '%s' to be valid", tt.durableName)
+		})
+	}
+}
+
+func (s *ValidationSuite) TestValidateDurableName_Invalid() {
+	tests := []struct {
+		name        string
+		durableName string
+		errorPart   string
+	}{
+		{"empty string", "", "cannot be empty"},
+		{"with period", "my.queue", "cannot contain period"},
+		{"with asterisk", "my*queue", "cannot contain asterisk"},
+		{"with greater-than", "my>queue", "cannot contain greater-than"},
+		{"with forward slash", "my/queue", "cannot contain path separators"},
+		{"with backslash", "my\\queue", "cannot contain path separators"},
+		{"with space", "my queue", "cannot contain whitespace"},
+		{"with tab", "my\tqueue", "cannot contain whitespace"},
+		{"with newline", "my\nqueue", "cannot contain whitespace"},
+		{"with carriage return", "my\rqueue", "cannot contain whitespace"},
+		{"leading space", " myqueue", "cannot contain whitespace"},
+		{"trailing space", "myqueue ", "cannot contain whitespace"},
+		{"control character", "my\x00queue", "cannot contain whitespace or non-printable"},
+		{"DEL character", "my\x7Fqueue", "cannot contain whitespace or non-printable"},
+		{"too long", strings.Repeat("a", 256), "cannot exceed 255 characters"},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			err := validateDurableName(tt.durableName)
+			s.Error(err, "Expected '%s' to be invalid", tt.durableName)
+			if err != nil {
+				s.Contains(err.Error(), tt.errorPart)
+			}
+		})
+	}
+}
+
+func (s *ValidationSuite) TestValidateDurableName_PositionReporting() {
+	tests := []struct {
+		name        string
+		durableName string
+		expectedPos int
+	}{
+		{"period at start", ".queue", 0},
+		{"period in middle", "my.queue", 2},
+		{"asterisk at end", "queue*", 5},
+		{"slash in middle", "my/queue", 2},
+		{"space at position 3", "foo bar", 3},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			err := validateDurableName(tt.durableName)
+			s.Error(err)
+			s.Contains(err.Error(), fmt.Sprintf("position %d", tt.expectedPos))
+		})
+	}
+}
+
+func TestValidationSuite(t *testing.T) {
+	if testing.Short() {
+		suite.Run(t, new(ValidationSuite))
 	}
 }

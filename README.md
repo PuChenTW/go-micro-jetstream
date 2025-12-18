@@ -86,7 +86,7 @@ handler := func(e broker.Event) error {
 sub, err := b.Subscribe(
     "orders.created",
     handler,
-    broker.Queue("order-processor"),  // Durable consumer name
+    broker.Queue("order-processor"),  // Required: Durable consumer name
 )
 if err != nil {
     panic(err)
@@ -140,7 +140,8 @@ jsbroker.WithStreamConfig(jetstream.StreamConfig{
 ### Subscribe Options
 
 ```go
-// Durable consumer for load balancing
+// Durable consumer name (REQUIRED)
+// Maps directly to JetStream durable consumer name
 broker.Queue("my-consumer-group")
 
 // Custom context for cancellation
@@ -197,17 +198,52 @@ Benefits:
 
 ### Durable Consumers
 
-Queue names map directly to JetStream durable consumer names:
+Queue names are **required** and map directly to JetStream durable consumer names:
 
 ```go
 // Multiple instances with same queue share message delivery
 broker.Queue("order-processor")  // Creates durable consumer "order-processor"
 ```
 
-This enables:
+**Note**: All subscriptions must provide a queue name via `broker.Queue()`. This ensures:
+- Explicit consumer naming for better observability
 - Load balancing across service instances
 - Consumer state persistence across restarts
 - Message replay from last acknowledged position
+
+### Durable Consumer Naming Rules
+
+Queue names must follow NATS JetStream naming constraints:
+
+**Allowed characters**:
+- Alphanumeric: `a-z`, `A-Z`, `0-9`
+- Hyphen: `-`
+- Underscore: `_`
+
+**Prohibited characters**:
+- Whitespace (spaces, tabs, newlines)
+- Period: `.`
+- Asterisk: `*`
+- Greater-than: `>`
+- Path separators: `/` or `\`
+- Non-printable characters
+
+**Recommendations**:
+- Keep names under 32 characters for file system compatibility
+- Use descriptive names: `order-processor-v2` instead of `q1`
+
+**Examples**:
+```go
+// Valid names
+broker.Queue("order-processor")
+broker.Queue("user_events_handler")
+broker.Queue("payment-service-v2")
+
+// Invalid names (will return error)
+broker.Queue("my.queue")      // Contains period
+broker.Queue("my queue")      // Contains space
+broker.Queue("orders/handler") // Contains slash
+```
 
 ## Error Handling
 

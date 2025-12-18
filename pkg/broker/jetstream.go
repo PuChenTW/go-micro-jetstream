@@ -169,10 +169,13 @@ func (b *jetStreamBroker) Subscribe(topic string, h broker.Handler, opts ...brok
 		o(&options)
 	}
 
-	queue := options.Queue
-	durableName := queue
+	durableName := options.Queue
 	if durableName == "" {
-		durableName = fmt.Sprintf("%s-%s", sanitizeTopicForDurable(topic), uuid.New().String()[:8])
+		return nil, errors.New("queue name (durable consumer name) is required")
+	}
+
+	if err := validateDurableName(durableName); err != nil {
+		return nil, fmt.Errorf("invalid queue name: %w", err)
 	}
 
 	streamName, err := b.getStreamForTopic(options.Context, topic)
@@ -195,7 +198,7 @@ func (b *jetStreamBroker) Subscribe(topic string, h broker.Handler, opts ...brok
 	sub := &jsSubscriber{
 		id:       subID,
 		topic:    topic,
-		queue:    queue,
+		queue:    durableName,
 		handler:  h,
 		consumer: consumer,
 		cancel:   cancel,
@@ -370,8 +373,35 @@ func streamNameFromTopic(topic string) string {
 	return strings.ToUpper(strings.ReplaceAll(parts[0], "-", "_"))
 }
 
-func sanitizeTopicForDurable(topic string) string {
-	s := strings.ReplaceAll(topic, ".", "_")
-	s = strings.ReplaceAll(s, "-", "_")
-	return strings.ToLower(s)
+func validateDurableName(name string) error {
+	if name == "" {
+		return errors.New("durable name cannot be empty")
+	}
+
+	if len(name) > 255 {
+		return errors.New("durable name cannot exceed 255 characters")
+	}
+
+	for i, r := range name {
+		switch {
+		case r == '.':
+			return fmt.Errorf("durable name cannot contain period (.) at position %d", i)
+		case r == '*':
+			return fmt.Errorf("durable name cannot contain asterisk (*) at position %d", i)
+		case r == '>':
+			return fmt.Errorf("durable name cannot contain greater-than (>) at position %d", i)
+		case r == '/' || r == '\\':
+			return fmt.Errorf("durable name cannot contain path separators (/ or \\) at position %d", i)
+		case r <= 32 || r == 127:
+			return fmt.Errorf("durable name cannot contain whitespace or non-printable characters at position %d", i)
+		case r > 127 && r < 160:
+			return fmt.Errorf("durable name cannot contain non-printable characters at position %d", i)
+		}
+	}
+
+	if len(name) > 32 {
+		logger.Warnf("Durable name '%s' exceeds recommended length of 32 characters (%d chars)", name, len(name))
+	}
+
+	return nil
 }

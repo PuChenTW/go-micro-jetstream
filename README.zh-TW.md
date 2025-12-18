@@ -86,7 +86,7 @@ handler := func(e broker.Event) error {
 sub, err := b.Subscribe(
     "orders.created",
     handler,
-    broker.Queue("order-processor"),  // 持久化消費者名稱
+    broker.Queue("order-processor"),  // 必需：持久化消費者名稱
 )
 if err != nil {
     panic(err)
@@ -140,7 +140,8 @@ jsbroker.WithStreamConfig(jetstream.StreamConfig{
 ### 訂閱選項
 
 ```go
-// 持久化消費者，用於負載平衡
+// 持久化消費者名稱（必需）
+// 直接映射到 JetStream 持久化消費者名稱
 broker.Queue("my-consumer-group")
 
 // 自訂 context 用於取消
@@ -197,17 +198,52 @@ user-events.login  → USER_EVENTS 串流
 
 ### 持久化消費者
 
-佇列名稱直接映射到 JetStream 持久化消費者名稱：
+佇列名稱是**必需的**，並直接映射到 JetStream 持久化消費者名稱：
 
 ```go
 // 多個實例使用相同的佇列共享訊息傳遞
 broker.Queue("order-processor")  // 建立持久化消費者 "order-processor"
 ```
 
-這樣可以實現：
+**注意**：所有訂閱都必須透過 `broker.Queue()` 提供佇列名稱。這確保：
+- 明確的消費者命名以提高可觀察性
 - 跨服務實例的負載平衡
 - 重啟後消費者狀態持久化
 - 從最後確認位置重播訊息
+
+### 持久化消費者命名規則
+
+佇列名稱必須遵循 NATS JetStream 命名限制：
+
+**允許的字元**：
+- 字母數字：`a-z`、`A-Z`、`0-9`
+- 連字號：`-`
+- 底線：`_`
+
+**禁止的字元**：
+- 空白字元（空格、Tab、換行）
+- 句點：`.`
+- 星號：`*`
+- 大於號：`>`
+- 路徑分隔符號：`/` 或 `\`
+- 不可列印字元
+
+**建議**：
+- 保持名稱在 32 字元以內以確保檔案系統相容性
+- 使用描述性名稱：`order-processor-v2` 而非 `q1`
+
+**範例**：
+```go
+// 有效的名稱
+broker.Queue("order-processor")
+broker.Queue("user_events_handler")
+broker.Queue("payment-service-v2")
+
+// 無效的名稱（將返回錯誤）
+broker.Queue("my.queue")      // 包含句點
+broker.Queue("my queue")      // 包含空格
+broker.Queue("orders/handler") // 包含斜線
+```
 
 ## 錯誤處理
 
