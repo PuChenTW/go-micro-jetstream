@@ -375,10 +375,3 @@ func sanitizeTopicForDurable(topic string) string {
 	s = strings.ReplaceAll(s, "-", "_")
 	return strings.ToLower(s)
 }
-
-func min(a, b time.Duration) time.Duration {
-	if a < b {
-		return a
-	}
-	return b
-}
