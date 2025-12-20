@@ -358,7 +358,7 @@ func (b *jetStreamBroker) handleMessage(ctx context.Context, sub *subscriber, ms
 		}
 	}()
 
-	driverMsg := &broker.Message{
+	brokerMsg := &broker.Message{
 		Topic:  sub.topic,
 		Body:   msg.Data(),
 		Header: make(map[string]string),
@@ -367,11 +367,11 @@ func (b *jetStreamBroker) handleMessage(ctx context.Context, sub *subscriber, ms
 	// Copy headers
 	for k, v := range msg.Headers() {
 		if len(v) > 0 {
-			driverMsg.Header[k] = v[0]
+			brokerMsg.Header[k] = v[0]
 		}
 	}
 
-	err := sub.handler(ctx, driverMsg)
+	err := sub.handler(ctx, brokerMsg)
 
 	if err != nil {
 		b.opts.Logger.Printf("Handler error for topic %s: %v", sub.topic, err)

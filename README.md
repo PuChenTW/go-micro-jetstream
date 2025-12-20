@@ -1,12 +1,12 @@
-# NATS JetStream Driver for Go
+# NATS JetStream Broker for Go
 
-A robust, context-aware NATS JetStream driver designed for modern Go applications, offering seamless `go-fx` integration and reliable message handling.
+A robust, context-aware NATS JetStream broker designed for modern Go applications, offering seamless `go-fx` integration and reliable message handling.
 
 [繁體中文文檔](README.zh-TW.md)
 
 ## Design Philosophy
 
-We believe that messaging infrastructure should be reliable, transparent, and easy to manage. This driver is built on three core pillars:
+We believe that messaging infrastructure should be reliable, transparent, and easy to manage. This broker is built on three core pillars:
 
 1.  **Context-Awareness**: Every operation respects `context.Context`. This ensures that your application handles timeouts, cancellation, and graceful shutdowns correctly, which is critical for microservices.
 2.  **Explicit Lifecycle**: We treat the broker as a lifecycle-managed component. Connection and disconnection are explicit actions, making it perfect for use with dependency injection frameworks like `uber-go/fx`.
@@ -15,7 +15,7 @@ We believe that messaging infrastructure should be reliable, transparent, and ea
 ## Principles of Operation
 
 ### Pull-Based Consumption
-Instead of NATS pushing messages to your service blindly, this driver uses **Pull Consumers**.
+Instead of NATS pushing messages to your service blindly, this broker uses **Pull Consumers**.
 - **Batching**: Workers fetch messages in batches (configurable), reducing network chatter.
 - **Backpressure**: The service only pulls what it can process, preventing overload during traffic spikes.
 - **Control**: You can fine-tune `FetchWait` and `BatchSize` to balance latency and throughput.
@@ -60,7 +60,7 @@ if err := b.Disconnect(ctx); err != nil {
 Publishing is strictly synchronous to ensure data safety.
 
 ```go
-msg := &driver.Message{Body: []byte("payload")}
+msg := &broker.Message{Body: []byte("payload")}
 err := b.Publish(ctx, "orders.created", msg)
 ```
 
@@ -68,19 +68,19 @@ err := b.Publish(ctx, "orders.created", msg)
 Subscriptions require a **Subject** and a **Queue Name** (Durable Consumer).
 
 ```go
-handler := func(ctx context.Context, msg *driver.Message) error {
+handler := func(ctx context.Context, msg *broker.Message) error {
     // Process message...
     return nil // Returning nil ACKs the message. Error will NAK.
 }
 
 // "orders.created" -> Subject
 // "order-processor" -> Durable Consumer Name (Queue)
-sub, err := b.Subscribe(ctx, "orders.created", handler, driver.WithQueue("order-processor"))
+sub, err := b.Subscribe(ctx, "orders.created", handler, broker.WithQueue("order-processor"))
 ```
 
 ## Architecture
 
-This driver implements a clean interface that decouples your business logic from the underlying NATS implementation.
+This broker implements a clean interface that decouples your business logic from the underlying NATS implementation.
 
 - **`pkg/broker`**: Defines the clean, dependency-free interfaces (`Broker`, `Subscriber`, `Message`).
 - **`pkg/broker/jetstream`**: The concrete implementation using the official NATS Go client.

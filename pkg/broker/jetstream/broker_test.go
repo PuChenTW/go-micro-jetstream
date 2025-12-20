@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	driver "go-micro-jetstream/pkg/broker"
+	bk "go-micro-jetstream/pkg/broker"
 
 	"github.com/nats-io/nats-server/v2/server"
 )
@@ -64,19 +64,19 @@ func TestPublishSubscribe(t *testing.T) {
 	defer broker.Disconnect(ctx)
 
 	topic := "test.topic"
-	msgCh := make(chan *driver.Message, 1)
+	msgCh := make(chan *bk.Message, 1)
 
-	handler := func(ctx context.Context, msg *driver.Message) error {
+	handler := func(ctx context.Context, msg *bk.Message) error {
 		msgCh <- msg
 		return nil
 	}
 
-	_, err := broker.Subscribe(ctx, topic, handler, driver.WithQueue("test-queue"))
+	_, err := broker.Subscribe(ctx, topic, handler, bk.WithQueue("test-queue"))
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %v", err)
 	}
 
-	testMsg := &driver.Message{
+	testMsg := &bk.Message{
 		Header: map[string]string{"Key": "Value"},
 		Body:   []byte("hello world"),
 	}
@@ -118,7 +118,7 @@ func TestDisconnectWait(t *testing.T) {
 	handlerDone := make(chan struct{})
 
 	var startOnce, doneOnce sync.Once
-	handler := func(ctx context.Context, msg *driver.Message) error {
+	handler := func(ctx context.Context, msg *bk.Message) error {
 		startOnce.Do(func() { close(handlerStarted) })
 		// Wait until allowed to proceed
 		<-releaseHandler
@@ -126,12 +126,12 @@ func TestDisconnectWait(t *testing.T) {
 		return nil
 	}
 
-	_, err := broker.Subscribe(ctx, topic, handler, driver.WithQueue("test-queue"))
+	_, err := broker.Subscribe(ctx, topic, handler, bk.WithQueue("test-queue"))
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %v", err)
 	}
 
-	if err := broker.Publish(ctx, topic, &driver.Message{Body: []byte("trigger")}); err != nil {
+	if err := broker.Publish(ctx, topic, &bk.Message{Body: []byte("trigger")}); err != nil {
 		t.Fatalf("Failed to publish: %v", err)
 	}
 
@@ -227,16 +227,16 @@ func TestLoggerUsage(t *testing.T) {
 	// 2. Test Handler Error Logging
 	topic := "test.logger.handler.error"
 	handlerErr := fmt.Errorf("simulated handler error")
-	handler := func(ctx context.Context, msg *driver.Message) error {
+	handler := func(ctx context.Context, msg *bk.Message) error {
 		return handlerErr
 	}
 
-	_, err := broker.Subscribe(ctx, topic, handler, driver.WithQueue("test-queue"))
+	_, err := broker.Subscribe(ctx, topic, handler, bk.WithQueue("test-queue"))
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %v", err)
 	}
 
-	if err := broker.Publish(ctx, topic, &driver.Message{Body: []byte("fail")}); err != nil {
+	if err := broker.Publish(ctx, topic, &bk.Message{Body: []byte("fail")}); err != nil {
 		t.Fatalf("Failed to publish: %v", err)
 	}
 
@@ -276,11 +276,11 @@ func TestUnsubscribe(t *testing.T) {
 	defer broker.Disconnect(ctx)
 
 	topic := "test.unsubscribe"
-	handler := func(ctx context.Context, msg *driver.Message) error {
+	handler := func(ctx context.Context, msg *bk.Message) error {
 		return nil
 	}
 
-	sub, err := broker.Subscribe(ctx, topic, handler, driver.WithQueue("test-queue"))
+	sub, err := broker.Subscribe(ctx, topic, handler, bk.WithQueue("test-queue"))
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %v", err)
 	}
