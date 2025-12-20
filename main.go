@@ -9,8 +9,8 @@ import (
 
 	"go.uber.org/fx"
 
-	"go-micro-jetstream/pkg/driver"
-	"go-micro-jetstream/pkg/driver/jetstream"
+	"go-micro-jetstream/pkg/broker"
+	"go-micro-jetstream/pkg/broker/jetstream"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 	app.Run()
 }
 
-func NewBroker(lc fx.Lifecycle) (driver.Broker, error) {
+func NewBroker(lc fx.Lifecycle) (broker.Broker, error) {
 	b := jetstream.NewBroker(
 		jetstream.WithAddrs("localhost:4222"),
 		jetstream.WithBatchSize(10),
@@ -45,12 +45,12 @@ func NewBroker(lc fx.Lifecycle) (driver.Broker, error) {
 	return b, nil
 }
 
-func SetupSubscriber(lc fx.Lifecycle, b driver.Broker) {
-	var sub driver.Subscriber
+func SetupSubscriber(lc fx.Lifecycle, b broker.Broker) {
+	var sub broker.Subscriber
 
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			handler := func(ctx context.Context, msg *driver.Message) error {
+			handler := func(ctx context.Context, msg *broker.Message) error {
 				log.Printf("Received message: %s", string(msg.Body))
 				return nil
 			}
@@ -60,7 +60,7 @@ func SetupSubscriber(lc fx.Lifecycle, b driver.Broker) {
 				ctx,
 				"test.messages",
 				handler,
-				driver.WithQueue("validation-queue"),
+				broker.WithQueue("validation-queue"),
 			)
 			if err != nil {
 				return fmt.Errorf("failed to subscribe: %w", err)
@@ -78,7 +78,7 @@ func SetupSubscriber(lc fx.Lifecycle, b driver.Broker) {
 	})
 }
 
-func PublishTestMessages(lc fx.Lifecycle, b driver.Broker) {
+func PublishTestMessages(lc fx.Lifecycle, b broker.Broker) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			// Run in background to not block OnStart
@@ -90,8 +90,8 @@ func PublishTestMessages(lc fx.Lifecycle, b driver.Broker) {
 				bgCtx := context.Background()
 
 				for i := 1; i <= 5; i++ {
-					msg := &driver.Message{
-						Body: []byte(fmt.Sprintf("Test message %d", i)),
+					msg := &broker.Message{
+						Body: fmt.Appendf(nil, "Test message %d", i),
 					}
 
 					if err := b.Publish(bgCtx, "test.messages", msg); err != nil {

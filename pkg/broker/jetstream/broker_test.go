@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"go-micro-jetstream/pkg/driver"
+	driver "go-micro-jetstream/pkg/broker"
 
 	"github.com/nats-io/nats-server/v2/server"
 )

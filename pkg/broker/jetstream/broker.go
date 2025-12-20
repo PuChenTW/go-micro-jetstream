@@ -12,7 +12,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"go-micro-jetstream/pkg/driver"
+	"go-micro-jetstream/pkg/broker"
 )
 
 const (
@@ -35,7 +35,7 @@ type subscriber struct {
 	id       string
 	topic    string
 	queue    string
-	handler  driver.Handler
+	handler  broker.Handler
 	consumer jetstream.Consumer
 	cancel   context.CancelFunc
 }
@@ -49,7 +49,7 @@ func (s *subscriber) Unsubscribe(ctx context.Context) error {
 	return nil
 }
 
-func NewBroker(opts ...Option) driver.Broker {
+func NewBroker(opts ...Option) broker.Broker {
 	options := defaultOptions()
 	for _, o := range opts {
 		o(&options)
@@ -119,7 +119,7 @@ func (b *jetStreamBroker) Disconnect(ctx context.Context) error {
 	return nil
 }
 
-func (b *jetStreamBroker) Publish(ctx context.Context, topic string, msg *driver.Message, opts ...driver.PublishOption) error {
+func (b *jetStreamBroker) Publish(ctx context.Context, topic string, msg *broker.Message, opts ...broker.PublishOption) error {
 	b.mu.RLock()
 	connected := b.connected
 	js := b.js
@@ -129,7 +129,7 @@ func (b *jetStreamBroker) Publish(ctx context.Context, topic string, msg *driver
 		return errors.New("broker not connected")
 	}
 
-	options := driver.PublishOptions{
+	options := broker.PublishOptions{
 		Context: ctx,
 	}
 	for _, o := range opts {
@@ -157,7 +157,7 @@ func (b *jetStreamBroker) Publish(ctx context.Context, topic string, msg *driver
 	return nil
 }
 
-func (b *jetStreamBroker) Subscribe(ctx context.Context, topic string, h driver.Handler, opts ...driver.SubscribeOption) (driver.Subscriber, error) {
+func (b *jetStreamBroker) Subscribe(ctx context.Context, topic string, h broker.Handler, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
 	b.mu.RLock()
 	connected := b.connected
 	js := b.js
@@ -167,7 +167,7 @@ func (b *jetStreamBroker) Subscribe(ctx context.Context, topic string, h driver.
 		return nil, errors.New("broker not connected")
 	}
 
-	options := driver.SubscribeOptions{
+	options := broker.SubscribeOptions{
 		Context: ctx,
 	}
 	for _, o := range opts {
@@ -345,7 +345,7 @@ func (b *jetStreamBroker) handleMessage(ctx context.Context, sub *subscriber, ms
 		}
 	}()
 
-	driverMsg := &driver.Message{
+	driverMsg := &broker.Message{
 		Topic:  sub.topic,
 		Body:   msg.Data(),
 		Header: make(map[string]string),
