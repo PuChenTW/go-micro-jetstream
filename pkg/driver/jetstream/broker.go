@@ -197,10 +197,9 @@ func (b *jetStreamBroker) Subscribe(ctx context.Context, topic string, h driver.
 	}
 
 	subCtx, cancel := context.WithCancel(context.Background())
-	// Create a child context if the passed context is long-lived?
-	// Actually, subscription loop should probably run until Unsubscribe or explicit cancel.
-	// passed ctx in Subscribe is usually for the *setup* of subscription.
-	// So creating a new background context for the loop is correct, controlled by cancel.
+	// Use a separate background context for the message processing loop.
+	// The 'ctx' passed to Subscribe is typically for the initial setup (e.g., API requests).
+	// We want the subscription to persist until Unsubscribe() is called or the broker disconnects.
 
 	subID := uuid.New().String()
 	sub := &subscriber{
@@ -326,13 +325,6 @@ func (b *jetStreamBroker) runFetchLoop(ctx context.Context, sub *subscriber) {
 	}
 }
 
-func min(a, b time.Duration) time.Duration {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func (b *jetStreamBroker) handleMessage(ctx context.Context, sub *subscriber, msg jetstream.Msg) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -354,10 +346,6 @@ func (b *jetStreamBroker) handleMessage(ctx context.Context, sub *subscriber, ms
 		}
 	}
 
-	// We pass the fetch loop context to the handler?
-	// Or should we create a new context with timeout?
-	// The Handler signature is func(ctx, msg).
-	// Let's pass the ctx derived from the fetch loop, which means if the subscription stops, the handler sees done.
 	err := sub.handler(ctx, driverMsg)
 
 	if err != nil {
