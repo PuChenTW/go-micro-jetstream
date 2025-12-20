@@ -10,6 +10,7 @@
 - **Functions**: Do one thing. Return early. Handle errors explicitly.
 - **Error Handling**: Fail fast. Clean up resources in reverse order (e.g., in `Disconnect` or `OnStop`).
 - **No Emojis**: Do not use emojis in code, comments, or logs.
+- **No Magic Numbers**: Use named constants for timeouts, batch sizes, and configuration defaults.
 - **Concurrency**: Use `sync.RWMutex` for state protection. Ensure safety across goroutines.
 
 ## Architecture Patterns

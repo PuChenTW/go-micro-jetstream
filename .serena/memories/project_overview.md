@@ -9,6 +9,7 @@ A production-ready NATS JetStream driver for Go, providing reliable message publ
   - `github.com/nats-io/nats.go`: NATS JetStream client.
   - `go.uber.org/fx`: Dependency injection framework used for lifecycle management.
   - `github.com/stretchr/testify`: Testing framework.
+  - `github.com/nats-io/nats-server/v2`: In-memory NATS server for unit tests.
 
 ## Key Features
 - **Context-aware Interface**: All broker methods accept `context.Context`.
