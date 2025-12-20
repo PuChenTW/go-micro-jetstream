@@ -99,25 +99,29 @@ func (b *jetStreamBroker) Connect(ctx context.Context) error {
 
 func (b *jetStreamBroker) Disconnect(ctx context.Context) error {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	if !b.connected {
+		b.mu.Unlock()
 		return nil
 	}
 
+	b.connected = false
+	nc := b.nc
+	cancels := make([]context.CancelFunc, 0, len(b.subs))
 	for _, sub := range b.subs {
-		sub.cancel()
+		cancels = append(cancels, sub.cancel)
+	}
+	b.subs = make(map[string]*subscriber)
+	b.mu.Unlock()
+
+	for _, cancel := range cancels {
+		cancel()
 	}
 
-	// Wait for processing to stop
 	b.wg.Wait()
 
-	if err := b.nc.Drain(); err != nil {
+	if err := nc.Drain(); err != nil {
 		b.opts.Logger.Printf("Error draining NATS connection: %v", err)
 	}
-
-	b.connected = false
-	b.subs = make(map[string]*subscriber)
 
 	b.opts.Logger.Printf("Disconnected from NATS")
 	return nil
