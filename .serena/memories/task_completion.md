@@ -7,4 +7,3 @@ When a task is completed in this project, perform the following steps:
 3. **Run Tests**: Ensure all tests pass with `go test -v ./...`.
 4. **Documentation**: Update `README.md` or other docs if the public interface or features change.
 5. **Clean Logs**: Ensure no emojis or debug logs are left in the production paths.
-6. **Backward Compatibility**: Ensure changes to the broker implementation don't break the `go-micro` broker interface.

@@ -1,28 +1,21 @@
-# NATS JetStream Broker for go-micro v5
+# NATS JetStream Driver for Go
 
-A production-ready NATS JetStream broker implementation for go-micro v5, providing reliable message publishing and pull-based consumption with built-in resilience and graceful shutdown.
+A production-ready NATS JetStream driver, designed for `go-fx` integration and providing reliable message publishing and pull-based consumption.
 
 [繁體中文文檔](README.zh-TW.md)
 
 ## Overview
 
-This broker integrates NATS JetStream's persistent messaging capabilities with go-micro's broker interface, enabling reliable event-driven microservices communication. It uses pull-based consumers with batch processing for optimal throughput and backpressure management.
+This driver connects NATS JetStream with your Go application, enabling reliable event-driven microservices communication. It uses pull-based consumers with batch processing for optimal throughput and backpressure management, and exposes a context-aware interface compatible with modern Go practices.
 
 ## Key Features
 
-### Core Functionality
-- **Pull-based subscriptions**: Background workers fetch messages in configurable batches
-- **Synchronous publishing**: Waits for JetStream acknowledgment to guarantee persistence
-- **Stream auto-creation**: Automatically creates streams on first publish with sensible defaults
-- **Durable consumers**: Queue names map to JetStream durable consumers for load balancing
-- **Message ordering**: Sequential processing within batches maintains per-consumer ordering
-
-### Production Standards
-- **Concurrency safety**: `sync.RWMutex` protects broker state across goroutines
-- **Panic recovery**: Two-level recovery (fetch loop + handler) prevents worker crashes
-- **Exponential backoff**: Fetch errors trigger 1s → 30s backoff to prevent tight loops
-- **Graceful shutdown**: `nc.Drain()` waits for in-flight messages before disconnecting
-- **Explicit acknowledgment**: Handlers control Ack/Nak based on processing result
+- **Context-aware Interface**: All methods (`Connect`, `Publish`, `Subscribe`) accept `context.Context` for cancellation and tracing.
+- **go-fx Integration**: Designed to work seamlessly with `go.uber.org/fx` for lifecycle management.
+- **Pull-based Subscriptions**: Background workers fetch messages in configurable batches.
+- **Synchronous Publishing**: Waits for JetStream acknowledgment to guarantee persistence.
+- **Stream Auto-creation**: Automatically creates streams on first publish/subscribe with sensible defaults.
+- **Durable Consumers**: Queue names map to JetStream durable consumers for load balancing.
 
 ## Installation
 
@@ -31,396 +24,171 @@ go get go-micro-jetstream
 ```
 
 ### Dependencies
-- `go-micro.dev/v5` - Broker interface
 - `github.com/nats-io/nats.go` - NATS JetStream client
-- `github.com/google/uuid` - Subscription ID generation
+- `go.uber.org/fx` - Dependency injection framework (optional but recommended)
 
 ## Quick Start
 
 ### 1. Start NATS with JetStream
 
 ```bash
-# Using Docker
 docker run -d --name nats-jetstream \
   -p 4222:4222 -p 8222:8222 \
   nats:latest -js -m 8222
-
-# Or native binary
-nats-server -js -m 8222
 ```
 
-### 2. Create a Broker
+### 2. Define the Application (using go-fx)
 
 ```go
 package main
 
 import (
-    "time"
-    "go-micro.dev/v5/broker"
-    jsbroker "go-micro-jetstream/pkg/broker"
+	"context"
+	"log"
+	"time"
+
+	"go.uber.org/fx"
+	"go-micro-jetstream/pkg/driver"
+	"go-micro-jetstream/pkg/driver/jetstream"
 )
 
 func main() {
-    b := jsbroker.NewBroker(
-        broker.Addrs("localhost:4222"),
-        jsbroker.WithBatchSize(10),
-        jsbroker.WithFetchWait(5*time.Second),
-    )
-
-    if err := b.Connect(); err != nil {
-        panic(err)
-    }
-    defer b.Disconnect()
+	app := fx.New(
+		fx.Provide(NewBroker),
+		fx.Invoke(SetupSubscriber),
+		fx.Invoke(PublishMessages),
+	)
+	app.Run()
 }
 ```
 
-### 3. Subscribe to Messages
+### 3. Create a Broker Provider
 
 ```go
-handler := func(e broker.Event) error {
-    msg := e.Message()
-    fmt.Printf("Received: %s\n", string(msg.Body))
-    return nil  // Ack on success, return error to Nak
-}
+func NewBroker(lc fx.Lifecycle) (driver.Broker, error) {
+	b := jetstream.NewBroker(
+		jetstream.WithAddrs("localhost:4222"),
+		jetstream.WithBatchSize(10),
+		jetstream.WithFetchWait(5*time.Second),
+		jetstream.WithClientName("my-service"),
+        // Optional: Inject custom logger
+        // jetstream.WithLogger(myLogger),
+	)
 
-sub, err := b.Subscribe(
-    "orders.created",
-    handler,
-    broker.Queue("order-processor"),  // Required: Durable consumer name
-)
-if err != nil {
-    panic(err)
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			log.Println("Connecting broker...")
+			return b.Connect(ctx)
+		},
+		OnStop: func(ctx context.Context) error {
+			log.Println("Disconnecting broker...")
+			return b.Disconnect(ctx)
+		},
+	})
+
+	return b, nil
 }
-defer sub.Unsubscribe()
 ```
 
-### 4. Publish Messages
+### 4. Subscribe to Messages
 
 ```go
-msg := &broker.Message{
-    Header: map[string]string{"type": "order"},
-    Body:   []byte(`{"id": "123", "amount": 99.99}`),
-}
+func SetupSubscriber(lc fx.Lifecycle, b driver.Broker) {
+    var sub driver.Subscriber
 
-if err := b.Publish("orders.created", msg); err != nil {
-    panic(err)
+    lc.Append(fx.Hook{
+        OnStart: func(ctx context.Context) error {
+            handler := func(ctx context.Context, msg *driver.Message) error {
+                log.Printf("Received: %s", string(msg.Body))
+                return nil // Ack on success, error will Nak
+            }
+
+            s, err := b.Subscribe(
+                ctx,
+                "orders.created",
+                handler,
+                driver.WithQueue("order-processor"), // Required: Durable consumer name
+            )
+            if err != nil {
+                return err
+            }
+            sub = s
+            return nil
+        },
+        OnStop: func(ctx context.Context) error {
+            if sub != nil {
+                return sub.Unsubscribe(ctx)
+            }
+            return nil
+        },
+    })
+}
+```
+
+### 5. Publish Messages
+
+```go
+func PublishMessages(lc fx.Lifecycle, b driver.Broker) {
+    lc.Append(fx.Hook{
+        OnStart: func(ctx context.Context) error {
+            go func() {
+                msg := &driver.Message{
+                    Body: []byte(`{"id": 123}`),
+                }
+                if err := b.Publish(context.Background(), "orders.created", msg); err != nil {
+                    log.Printf("Publish failed: %v", err)
+                }
+            }()
+            return nil
+        },
+    })
 }
 ```
 
 ## Configuration Options
 
-### Broker Options
+### Broker Options (`pkg/driver/jetstream`)
 
 ```go
 // NATS server addresses
-broker.Addrs("nats://localhost:4222")
+jetstream.WithAddrs("nats://localhost:4222")
 
 // Batch size for Fetch operations (default: 10)
-jsbroker.WithBatchSize(20)
+jetstream.WithBatchSize(20)
 
 // Fetch timeout (default: 5s)
-jsbroker.WithFetchWait(3 * time.Second)
+jetstream.WithFetchWait(3 * time.Second)
 
 // NATS client name (default: go-micro-{hostname})
-jsbroker.WithClientName("my-service")
+jetstream.WithClientName("my-service")
+
+// Custom Logger
+jetstream.WithLogger(myLogger)
 
 // Custom NATS options for TLS/Auth
-jsbroker.WithNATSOptions(
+jetstream.WithNatsOptions(
     nats.UserInfo("user", "password"),
-    nats.RootCAs("./certs/ca.pem"),
 )
-
-// Custom stream configuration template
-jsbroker.WithStreamConfig(jetstream.StreamConfig{
-    Retention: jetstream.LimitsPolicy,
-    MaxAge:    24 * time.Hour,
-})
 ```
 
-### Subscribe Options
+### Subscribe Options (`pkg/driver`)
 
 ```go
 // Durable consumer name (REQUIRED)
-// Maps directly to JetStream durable consumer name
-broker.Queue("my-consumer-group")
-
-// Custom context for cancellation
-broker.SubscribeContext(ctx)
-```
-
-### Publish Options
-
-```go
-// Custom context with timeout
-broker.PublishContext(ctx)
+driver.WithQueue("my-consumer-group")
 ```
 
 ## Architecture
 
-### Stream Naming Convention
+This driver implements a clean `driver.Broker` interface found in `pkg/driver/broker.go`. The implementation is in `pkg/driver/jetstream`.
 
-Topics are mapped to streams using the first segment:
+- **Subscriptions**: Each subscription runs a dedicated goroutine that pulls messages from JetStream.
+- **Panic Recovery**: Handlers are protected by panic recovery to prevent worker crashes.
+- **Connection Management**: Connection logic is separate from instance creation, allowing for better control via dependency injection lifecycles.
 
-```
-orders.created     → ORDERS stream
-orders.updated     → ORDERS stream
-user-events.login  → USER_EVENTS stream
-```
+## Changes from Legacy `go-micro` Broker
 
-Streams are auto-created with:
-- **Retention**: WorkQueue (messages deleted after consumption)
-- **Storage**: File (persistent)
-- **Subjects**: `{prefix}.>` wildcard pattern
-
-### Pull Consumer Worker Pattern
-
-Each subscription spawns a dedicated goroutine:
-
-```
-┌─────────────────────────────────────┐
-│  Subscription Worker Goroutine      │
-│                                     │
-│  Loop:                              │
-│    1. Fetch(batchSize) from JetStream │
-│    2. For each message:             │
-│       - Wrap as broker.Event        │
-│       - Call handler (with recover) │
-│       - Ack on success, Nak on error│
-│    3. Exponential backoff on errors │
-│    4. Check context cancellation    │
-└─────────────────────────────────────┘
-```
-
-Benefits:
-- Natural backpressure through batch fetching
-- Clean shutdown via context cancellation
-- Independent error handling per subscription
-
-### Durable Consumers
-
-Queue names are **required** and map directly to JetStream durable consumer names:
-
-```go
-// Multiple instances with same queue share message delivery
-broker.Queue("order-processor")  // Creates durable consumer "order-processor"
-```
-
-**Note**: All subscriptions must provide a queue name via `broker.Queue()`. This ensures:
-- Explicit consumer naming for better observability
-- Load balancing across service instances
-- Consumer state persistence across restarts
-- Message replay from last acknowledged position
-
-### Durable Consumer Naming Rules
-
-Queue names must follow NATS JetStream naming constraints:
-
-**Allowed characters**:
-- Alphanumeric: `a-z`, `A-Z`, `0-9`
-- Hyphen: `-`
-- Underscore: `_`
-
-**Prohibited characters**:
-- Whitespace (spaces, tabs, newlines)
-- Period: `.`
-- Asterisk: `*`
-- Greater-than: `>`
-- Path separators: `/` or `\`
-- Non-printable characters
-
-**Recommendations**:
-- Keep names under 32 characters for file system compatibility
-- Use descriptive names: `order-processor-v2` instead of `q1`
-
-**Examples**:
-```go
-// Valid names
-broker.Queue("order-processor")
-broker.Queue("user_events_handler")
-broker.Queue("payment-service-v2")
-
-// Invalid names (will return error)
-broker.Queue("my.queue")      // Contains period
-broker.Queue("my queue")      // Contains space
-broker.Queue("orders/handler") // Contains slash
-```
-
-## Error Handling
-
-### Handler Errors
-
-Return an error to trigger message redelivery:
-
-```go
-handler := func(e broker.Event) error {
-    if err := processMessage(e.Message()); err != nil {
-        // Message will be Nak'd and redelivered
-        return err
-    }
-    return nil  // Message will be Ack'd
-}
-```
-
-### Handler Panics
-
-Panics are recovered and logged. The message is Nak'd for redelivery:
-
-```go
-handler := func(e broker.Event) error {
-    panic("oops")  // Recovered, logged, message Nak'd
-}
-```
-
-### Fetch Errors
-
-Network or JetStream errors trigger exponential backoff:
-
-```
-Error → Wait 1s → Retry
-Error → Wait 2s → Retry
-Error → Wait 4s → Retry
-...
-Error → Wait 30s → Retry (max)
-```
-
-Success resets backoff to 1s.
-
-## Testing
-
-### Run Validation Script
-
-The included validation script demonstrates full functionality:
-
-```bash
-# Ensure NATS with JetStream is running
-docker run -d -p 4222:4222 -p 8222:8222 nats:latest -js -m 8222
-
-# Build and run
-go build -o jetstream-broker
-./jetstream-broker
-```
-
-Expected output:
-```
-Connected to NATS at nats://localhost:4222
-Created stream TEST for topic test.messages
-Subscribed to topic test.messages with durable consumer validation-queue
-Publishing test messages...
-Published message 1
-Received message: Test message 1
-Published message 2
-Received message: Test message 2
-...
-```
-
-### Verify JetStream State
-
-```bash
-# Check streams
-curl http://localhost:8222/jsz?streams=true
-
-# Check consumers
-curl http://localhost:8222/jsz?consumers=true
-```
-
-## Production Considerations
-
-### Idempotency
-
-JetStream guarantees at-least-once delivery. Design handlers to be idempotent:
-
-```go
-handler := func(e broker.Event) error {
-    // Check if already processed
-    if alreadyProcessed(e.Message().Header["message-id"]) {
-        return nil  // Ack without reprocessing
-    }
-
-    // Process and mark as complete
-    return process(e.Message())
-}
-```
-
-### Message Ordering
-
-Ordering is guaranteed per-consumer, not globally:
-- Messages to the same consumer arrive in order
-- Multiple consumers may process messages in different orders
-- Use message IDs or timestamps for cross-consumer ordering
-
-### Consumer State Cleanup
-
-Durable consumers persist after `Unsubscribe()`. To delete:
-
-```bash
-# Using NATS CLI
-nats consumer delete STREAM_NAME CONSUMER_NAME
-
-# Or via HTTP API
-curl -X DELETE http://localhost:8222/jsapi/v1/streams/TEST/consumers/validation-queue
-```
-
-### Monitoring
-
-Key metrics to track:
-- Messages published (counter)
-- Messages consumed (counter)
-- Handler errors (counter)
-- Handler panics (counter)
-- Fetch errors (counter)
-- Active subscriptions (gauge)
-
-Check JetStream monitoring:
-```bash
-curl http://localhost:8222/jsz
-```
-
-### Performance Tuning
-
-**High throughput**: Increase batch size
-```go
-jsbroker.WithBatchSize(100)
-```
-
-**Low latency**: Decrease fetch wait time
-```go
-jsbroker.WithFetchWait(1 * time.Second)
-```
-
-**Large messages**: Use byte-based batching (future enhancement)
-
-## Design Principles
-
-This implementation follows Linus Torvalds' software philosophy:
-
-1. **Simplicity over cleverness**: Direct NATS types, no unnecessary abstractions
-2. **Data structures first**: State machine built around clear broker struct
-3. **Explicit error handling**: No silent failures, all errors logged and propagated
-4. **Performance matters**: Batch fetching, minimal allocations, efficient locking
-5. **Good taste in code**: Pull workers are obvious, not clever
-
-## Limitations
-
-- Pull consumers only (no push consumer support)
-- Synchronous publish only (no async batching)
-- Auto-created streams use fixed naming convention
-- No built-in metrics/tracing (add via middleware)
-
-## License
-
-MIT
-
-## Contributing
-
-Pull requests welcome. Ensure:
-- No emojis in code or logs
-- Go best practices followed
-- Production-ready error handling
-- Tests pass
-- Documentation updated
-
-## See Also
-
-- [NATS JetStream Documentation](https://docs.nats.io/nats-concepts/jetstream)
-- [go-micro Documentation](https://go-micro.dev)
-- [Example Services](./examples/) (if available)
+- **Package**: Moved from `pkg/broker` to `pkg/driver` + `pkg/driver/jetstream`.
+- **Interface**: Uses `context.Context` in all methods.
+- **Dependency**: No longer depends on `go-micro.dev/v5`.
+- **Logging**: Uses standard `log` or injected logger instead of `go-micro/logger`.
