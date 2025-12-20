@@ -15,6 +15,12 @@ import (
 	"go-micro-jetstream/pkg/driver"
 )
 
+const (
+	DefaultDrainWait = 100 * time.Millisecond
+	DefaultBackoff   = 1 * time.Second
+	MaxBackoff       = 30 * time.Second
+)
+
 type jetStreamBroker struct {
 	nc        *nats.Conn
 	js        jetstream.JetStream
@@ -99,7 +105,7 @@ func (b *jetStreamBroker) Disconnect(ctx context.Context) error {
 	}
 
 	// Wait for processing to stop (simple sleep for now, could be better)
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(DefaultDrainWait)
 
 	if err := b.nc.Drain(); err != nil {
 		b.opts.Logger.Printf("Error draining NATS connection: %v", err)
@@ -278,8 +284,8 @@ func (b *jetStreamBroker) runFetchLoop(ctx context.Context, sub *subscriber) {
 		}
 	}()
 
-	backoff := time.Second
-	maxBackoff := 30 * time.Second
+	backoff := DefaultBackoff
+	maxBackoff := MaxBackoff
 
 	for {
 		select {
@@ -308,7 +314,7 @@ func (b *jetStreamBroker) runFetchLoop(ctx context.Context, sub *subscriber) {
 			}
 		}
 
-		backoff = time.Second
+		backoff = DefaultBackoff
 
 		for msg := range msgs.Messages() {
 			b.handleMessage(ctx, sub, msg)

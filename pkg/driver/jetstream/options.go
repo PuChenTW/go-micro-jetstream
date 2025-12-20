@@ -9,6 +9,12 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+const (
+	DefaultBatchSize    = 10
+	DefaultFetchWait    = 5 * time.Second
+	DefaultClientPrefix = "go-micro-"
+)
+
 type Logger interface {
 	Printf(format string, v ...interface{})
 }
@@ -32,9 +38,9 @@ func defaultOptions() Options {
 	}
 	return Options{
 		Addrs:      []string{nats.DefaultURL},
-		BatchSize:  10,
-		FetchWait:  5 * time.Second,
-		ClientName: "go-micro-" + hostname,
+		BatchSize:  DefaultBatchSize,
+		FetchWait:  DefaultFetchWait,
+		ClientName: DefaultClientPrefix + hostname,
 		Logger:     log.Default(),
 	}
 }
