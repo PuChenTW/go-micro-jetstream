@@ -261,3 +261,50 @@ func TestLoggerUsage(t *testing.T) {
 		t.Errorf("Timeout waiting for handler error log. Logs: %v", logs)
 	}
 }
+
+func TestUnsubscribe(t *testing.T) {
+	s := runServer(t)
+	defer s.Shutdown()
+
+	addr := s.Addr().String()
+	broker := NewBroker(WithAddrs(fmt.Sprintf("nats://%s", addr)))
+
+	ctx := context.Background()
+	if err := broker.Connect(ctx); err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer broker.Disconnect(ctx)
+
+	topic := "test.unsubscribe"
+	handler := func(ctx context.Context, msg *driver.Message) error {
+		return nil
+	}
+
+	sub, err := broker.Subscribe(ctx, topic, handler, driver.WithQueue("test-queue"))
+	if err != nil {
+		t.Fatalf("Failed to subscribe: %v", err)
+	}
+
+	// Assert subscriber is in the map
+	jsBroker, ok := broker.(*jetStreamBroker)
+	if !ok {
+		t.Fatal("Broker is not jetStreamBroker")
+	}
+
+	jsBroker.mu.RLock()
+	if len(jsBroker.subs) != 1 {
+		t.Errorf("Expected 1 subscriber, got %d", len(jsBroker.subs))
+	}
+	jsBroker.mu.RUnlock()
+
+	if err := sub.Unsubscribe(ctx); err != nil {
+		t.Fatalf("Failed to unsubscribe: %v", err)
+	}
+
+	// Assert subscriber is removed from map
+	jsBroker.mu.RLock()
+	if len(jsBroker.subs) != 0 {
+		t.Errorf("Expected 0 subscribers, got %d", len(jsBroker.subs))
+	}
+	jsBroker.mu.RUnlock()
+}

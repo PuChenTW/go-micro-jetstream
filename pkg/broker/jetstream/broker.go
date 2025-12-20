@@ -38,6 +38,7 @@ type subscriber struct {
 	handler  broker.Handler
 	consumer jetstream.Consumer
 	cancel   context.CancelFunc
+	broker   *jetStreamBroker
 }
 
 func (s *subscriber) Topic() string {
@@ -46,6 +47,9 @@ func (s *subscriber) Topic() string {
 
 func (s *subscriber) Unsubscribe(ctx context.Context) error {
 	s.cancel()
+	s.broker.mu.Lock()
+	delete(s.broker.subs, s.id)
+	s.broker.mu.Unlock()
 	return nil
 }
 
@@ -212,6 +216,7 @@ func (b *jetStreamBroker) Subscribe(ctx context.Context, topic string, h broker.
 		handler:  h,
 		consumer: consumer,
 		cancel:   cancel,
+		broker:   b,
 	}
 
 	b.wg.Add(1)
