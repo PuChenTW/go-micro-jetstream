@@ -37,6 +37,7 @@ The `Broker` is the central entry point. It requires a NATS address and offers t
 b := jetstream.NewBroker(
     jetstream.WithAddrs("nats://localhost:4222"),
     jetstream.WithBatchSize(10), // Optimize batch processing
+    jetstream.WithLogger(log.Default()), // Optional: Custom logger
 )
 ```
 
@@ -81,7 +82,7 @@ sub, err := b.Subscribe(ctx, "orders.created", handler, driver.WithQueue("order-
 
 This driver implements a clean interface that decouples your business logic from the underlying NATS implementation.
 
-- **`pkg/driver`**: Defines the clean, dependency-free interfaces (`Broker`, `Subscriber`, `Message`).
-- **`pkg/driver/jetstream`**: The concrete implementation using the official NATS Go client.
+- **`pkg/broker`**: Defines the clean, dependency-free interfaces (`Broker`, `Subscriber`, `Message`).
+- **`pkg/broker/jetstream`**: The concrete implementation using the official NATS Go client.
 
 This separation allows for easy mocking and testing of your business logic without needing a running NATS server.

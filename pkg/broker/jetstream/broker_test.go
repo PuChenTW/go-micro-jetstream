@@ -3,6 +3,7 @@ package jetstream
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -174,5 +175,89 @@ func TestDisconnectWait(t *testing.T) {
 	case <-handlerDone:
 	default:
 		t.Fatal("Handler should have finished")
+	}
+}
+
+type mockLogger struct {
+	mu   sync.Mutex
+	logs []string
+}
+
+func (m *mockLogger) Printf(format string, v ...interface{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.logs = append(m.logs, fmt.Sprintf(format, v...))
+}
+
+func (m *mockLogger) Logs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.logs...) // Copy
+}
+
+func TestLoggerUsage(t *testing.T) {
+	s := runServer(t)
+	defer s.Shutdown()
+
+	addr := s.Addr().String()
+	logger := &mockLogger{}
+	broker := NewBroker(
+		WithAddrs(fmt.Sprintf("nats://%s", addr)),
+		WithLogger(logger),
+	)
+
+	ctx := context.Background()
+	if err := broker.Connect(ctx); err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer broker.Disconnect(ctx)
+
+	// 1. Test Publish Error Logic (simulate by publishing to invalid subject if possible, or just verifying clean logs so far)
+	// JetStream publish failures are hard to force without network issues, but we can verify successful connect log.
+	logs := logger.Logs()
+	if len(logs) == 0 {
+		t.Fatal("Expected logs from Connect, got none")
+	}
+
+	foundConnect := slices.Contains(logs, fmt.Sprintf("Connected to NATS at nats://%s", addr))
+	if !foundConnect {
+		t.Errorf("Expected connect log, got: %v", logs)
+	}
+
+	// 2. Test Handler Error Logging
+	topic := "test.logger.handler.error"
+	handlerErr := fmt.Errorf("simulated handler error")
+	handler := func(ctx context.Context, msg *driver.Message) error {
+		return handlerErr
+	}
+
+	_, err := broker.Subscribe(ctx, topic, handler, driver.WithQueue("test-queue"))
+	if err != nil {
+		t.Fatalf("Failed to subscribe: %v", err)
+	}
+
+	if err := broker.Publish(ctx, topic, &driver.Message{Body: []byte("fail")}); err != nil {
+		t.Fatalf("Failed to publish: %v", err)
+	}
+
+	// Wait for handler error log
+	var foundHandlerErr bool
+	for range 20 {
+		logs = logger.Logs()
+		for _, l := range logs {
+			expected := fmt.Sprintf("Handler error for topic %s: %v", topic, handlerErr)
+			if l == expected {
+				foundHandlerErr = true
+				break
+			}
+		}
+		if foundHandlerErr {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if !foundHandlerErr {
+		t.Errorf("Timeout waiting for handler error log. Logs: %v", logs)
 	}
 }

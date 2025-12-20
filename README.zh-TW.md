@@ -37,6 +37,7 @@ Queue group 會自動映射到 JetStream 的 **Durable Consumers**。
 b := jetstream.NewBroker(
     jetstream.WithAddrs("nats://localhost:4222"),
     jetstream.WithBatchSize(10), // 優化批次處理
+    jetstream.WithLogger(log.Default()), // 可選：自定義 Logger
 )
 ```
 
@@ -81,7 +82,7 @@ sub, err := b.Subscribe(ctx, "orders.created", handler, driver.WithQueue("order-
 
 此 driver 實作了一個清晰的介面，將您的業務邏輯與底層 NATS 實作解耦。
 
-- **`pkg/driver`**：定義乾淨、無依賴的介面 (`Broker`, `Subscriber`, `Message`)。
-- **`pkg/driver/jetstream`**：使用官方 NATS Go client 的具體實作。
+- **`pkg/broker`**：定義乾淨、無依賴的介面 (`Broker`, `Subscriber`, `Message`)。
+- **`pkg/broker/jetstream`**：使用官方 NATS Go client 的具體實作。
 
 這種分離使得您可以輕鬆 mock 和測試您的業務邏輯，而無需運行的 NATS 伺服器。

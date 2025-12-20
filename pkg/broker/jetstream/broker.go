@@ -137,6 +137,7 @@ func (b *jetStreamBroker) Publish(ctx context.Context, topic string, msg *broker
 	}
 
 	if err := b.ensureStream(options.Context, topic); err != nil {
+		b.opts.Logger.Printf("Failed to ensure stream for topic %s: %v", topic, err)
 		return fmt.Errorf("failed to ensure stream: %w", err)
 	}
 
@@ -151,6 +152,7 @@ func (b *jetStreamBroker) Publish(ctx context.Context, topic string, msg *broker
 
 	_, err := js.PublishMsg(options.Context, natsMsg)
 	if err != nil {
+		b.opts.Logger.Printf("Failed to publish message to topic %s: %v", topic, err)
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 
@@ -341,7 +343,9 @@ func (b *jetStreamBroker) handleMessage(ctx context.Context, sub *subscriber, ms
 	defer func() {
 		if r := recover(); r != nil {
 			b.opts.Logger.Printf("Panic in handler for topic %s: %v", sub.topic, r)
-			msg.Nak()
+			if err := msg.Nak(); err != nil {
+				b.opts.Logger.Printf("Failed to NAK message after panic for topic %s: %v", sub.topic, err)
+			}
 		}
 	}()
 
@@ -361,11 +365,16 @@ func (b *jetStreamBroker) handleMessage(ctx context.Context, sub *subscriber, ms
 	err := sub.handler(ctx, driverMsg)
 
 	if err != nil {
-		msg.Nak()
+		b.opts.Logger.Printf("Handler error for topic %s: %v", sub.topic, err)
+		if nakErr := msg.Nak(); nakErr != nil {
+			b.opts.Logger.Printf("Failed to NAK message after handler error for topic %s: %v", sub.topic, nakErr)
+		}
 		return
 	}
 
-	msg.Ack()
+	if err := msg.Ack(); err != nil {
+		b.opts.Logger.Printf("Failed to ACK message for topic %s: %v", sub.topic, err)
+	}
 }
 
 func streamNameFromTopic(topic string) string {

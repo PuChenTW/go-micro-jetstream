@@ -1,7 +1,7 @@
-# Project Overview: go-micro-jetstream
+# Project Overview: go-jetstream
 
 ## Purpose
-A production-ready NATS JetStream driver for Go, providing reliable message publishing and pull-based consumption. It is designed for seamless integration with `go-fx` and uses a context-aware `driver.Broker` interface, removing the dependency on `go-micro`.
+A production-ready NATS JetStream driver for Go, providing reliable message publishing and pull-based consumption. It is designed for seamless integration with `go-fx` and uses a context-aware `broker.Broker` interface, removing the dependency on `go-micro`.
 
 ## Tech Stack
 - **Language**: Go 1.25.5
@@ -18,9 +18,10 @@ A production-ready NATS JetStream driver for Go, providing reliable message publ
 - **Auto-creation**: Streams are automatically created on first publish/subscribe.
 - **Resilience**: Panic recovery, exponential backoff, and graceful shutdown.
 - **No Heavy Framework Dependency**: Decoupled from `go-micro`, allowing for lighter weight integration.
+- **Custom Logger Support**: Allows injecting a custom logger (compatible with standard log.Logger) via options.
 
 ## Codebase Structure
-- `pkg/driver/`: Contains the broker interface and implementations.
+- `pkg/broker/`: Contains the broker interface and implementations.
   - `broker.go`: Defines the `Broker`, `Subscriber`, and `Message` interfaces.
   - `jetstream/`: NATS JetStream implementation of the driver.
 - `main.go`: A validation script demonstrating broker usage with `fx`.
