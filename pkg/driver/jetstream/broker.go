@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	DefaultDrainWait = 100 * time.Millisecond
+
 	DefaultBackoff   = 1 * time.Second
 	MaxBackoff       = 30 * time.Second
 )
@@ -28,6 +28,7 @@ type jetStreamBroker struct {
 	opts      Options
 	subs      map[string]*subscriber
 	mu        sync.RWMutex
+	wg        sync.WaitGroup
 }
 
 type subscriber struct {
@@ -104,8 +105,8 @@ func (b *jetStreamBroker) Disconnect(ctx context.Context) error {
 		sub.cancel()
 	}
 
-	// Wait for processing to stop (simple sleep for now, could be better)
-	time.Sleep(DefaultDrainWait)
+	// Wait for processing to stop
+	b.wg.Wait()
 
 	if err := b.nc.Drain(); err != nil {
 		b.opts.Logger.Printf("Error draining NATS connection: %v", err)
@@ -211,6 +212,7 @@ func (b *jetStreamBroker) Subscribe(ctx context.Context, topic string, h driver.
 		cancel:   cancel,
 	}
 
+	b.wg.Add(1)
 	go b.runFetchLoop(subCtx, sub)
 
 	b.mu.Lock()
@@ -282,6 +284,7 @@ func (b *jetStreamBroker) runFetchLoop(ctx context.Context, sub *subscriber) {
 			b.opts.Logger.Printf("Panic in fetch loop for topic %s: %v", sub.topic, r)
 		}
 	}()
+	defer b.wg.Done()
 
 	backoff := DefaultBackoff
 	maxBackoff := MaxBackoff
@@ -293,14 +296,19 @@ func (b *jetStreamBroker) runFetchLoop(ctx context.Context, sub *subscriber) {
 		default:
 		}
 
+		fetchCtx, cancel := context.WithTimeout(ctx, b.opts.FetchWait)
 		msgs, err := sub.consumer.Fetch(
 			b.opts.BatchSize,
-			jetstream.FetchMaxWait(b.opts.FetchWait),
+			jetstream.FetchContext(fetchCtx),
 		)
 
 		if err != nil {
+			cancel()
 			if errors.Is(err, context.Canceled) {
 				return
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				continue
 			}
 			b.opts.Logger.Printf("Fetch error for topic %s: %v", sub.topic, err)
 
@@ -320,8 +328,12 @@ func (b *jetStreamBroker) runFetchLoop(ctx context.Context, sub *subscriber) {
 		}
 
 		if msgs.Error() != nil {
-			b.opts.Logger.Printf("Message batch error: %v", msgs.Error())
+			// Ignore context canceled/deadline errors as they are expected during shutdown/timeout
+			if !errors.Is(msgs.Error(), context.Canceled) && !errors.Is(msgs.Error(), context.DeadlineExceeded) {
+				b.opts.Logger.Printf("Message batch error: %v", msgs.Error())
+			}
 		}
+		cancel()
 	}
 }
 
